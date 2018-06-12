@@ -1,0 +1,146 @@
+---
+title: "Week 2_Assignment"
+author: "Amr Ashraf"
+date: "june 12, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+##Executive Summary
+using exploratory data analysis to explore some features in the dataset we have , which are: en_US.blogs.tx, ex_US.news.txt and en_US.twitter.txt.
+We will use plots and graphs from ggplot2 package. We will try to put an algorithm for prediction.
+
+## Loading required Libraries
+```{r}
+library(ggplot2)
+library(stringi)
+library(dplyr)
+# used for string processing
+# Reference: https://cran.r-project.org/web/packages/stringi/stringi.pdf
+
+
+library(wordcloud) #used for n Pretty word clouds.
+# Reference: https://cran.r-project.org/web/packages/wordcloud/wordcloud.pdf
+
+library(RWeka)
+#used as n an R interface to Weka (Version 3.9.2).
+#Weka is a collection of machine learning algorithms for data mining tasks written in Java, containing tools for data pre-processing,classification, #regression, clustering, association rules, and visualization.
+
+#Reference: ftp://cran.r-project.org/pub/R/web/packages/RWeka/RWeka.pdf.
+
+
+library(NLP)
+# Natural Language processing package in R 
+# Reference: ftp://cran.r-project.org/pub/R/web/packages/NLP/NLP.pdf
+
+library(tm)
+#used for text mining
+# Reference: https://cran.r-project.org/web/packages/tm/tm.pdf
+```
+
+## Loading Data
+
+```{r}
+file_conn = file("C:/Users/pc/Documents/en_US/en_US.news.txt")
+data_blogs <- readLines(file_conn, encoding = "UTF-8", skipNul = TRUE)
+close(file_conn)
+
+file_conn = file("~/en_US/en_US.news.txt")
+data_news <- readLines(file_conn, encoding = "UTF-8", skipNul = TRUE)
+close(file_conn)
+
+file_conn = file("~/en_US/en_US.twitter.txt")
+data_twitter <- readLines(file_conn, encoding = "UTF-8", skipNul = TRUE)
+close(file_conn)
+```
+## Calculation of the Size
+
+```{r}
+data_stats <- data.frame(File_Name=c("US_blogs", "US_news", "US_twitter"), 
+                         FileSize=c(file.info("~/en_US/en_US.blogs.txt")$size/1024*1024, file.info("~/en_US/en_US.news.txt")$size/1024*1024, file.info("~/en_US/en_US.twitter.txt")$size/1024*1024),
+                         WordCount=sapply(list(data_blogs, data_news, data_twitter), stri_stats_latex)[4,], 
+                         t(rbind(sapply(list(data_blogs, data_news, data_twitter), stri_stats_general)[c('Lines','Chars'),]
+                         )))
+head(data_stats , n=3)
+```
+
+## Basic Date Cleaning
+```{r}
+set.seed(12345)
+test_data <- c(sample(data_blogs, length(data_blogs) * 0.005),
+              sample(data_news, length(data_news) * 0.005),
+              sample(data_twitter, length(data_twitter) * 0.005)
+          )
+          
+testdata <- iconv(test_data, "UTF-8", "ASCII", sub="")
+sample_corpus <- VCorpus(VectorSource(testdata))
+# Vcorpus: used to create volatile corpora , so it is fully kept in memory and any changes affect only the corresponding R object. For reference check the tm #package.
+
+sample_corpus <- tm_map(sample_corpus, tolower)
+# Interface to apply transformation functions (also denoted as mappings) to corpora. For Reference check the tm package
+sample_corpus <- tm_map(sample_corpus, stripWhitespace)
+sample_corpus <- tm_map(sample_corpus, removePunctuation)
+sample_corpus <- tm_map(sample_corpus, removeNumbers)
+sample_corpus <- tm_map(sample_corpus, PlainTextDocument)
+```
+
+## Creation of N-Gram
+
+```{r}
+unigram <- function(x) NGramTokenizer(x, Weka_control(min=1, max=1))
+#Weka_control: set control options for weka learners from Rweka package
+bigram <- function(x) NGramTokenizer(x, Weka_control(min=2, max=2))
+trigram <- function(x) NGramTokenizer(x, Weka_control(min=3, max=3))
+
+unidtf <- TermDocumentMatrix(sample_corpus, control=list(tokenize=unigram))
+#TextDocumentMatrix: Constructs or coerces to a term-document matrix or a document-term matrix. from tm package
+
+bidtf <- TermDocumentMatrix(sample_corpus, control=list(tokenize=bigram))
+tridtf <- TermDocumentMatrix(sample_corpus, control=list(tokenize=trigram))
+                             
+uni_tf <- findFreqTerms(unidtf, lowfreq = 50 )
+#findFreqTerms:finds frequent terms in a document-term or term-document matrix from tm package
+
+bi_tf <- findFreqTerms(bidtf, lowfreq = 50 )
+tri_tf <- findFreqTerms(tridtf, lowfreq = 10 )
+
+uni_freq <- rowSums(as.matrix(unidtf[uni_tf, ]))
+uni_freq <- data.frame(words=names(uni_freq), frequency=uni_freq)
+
+bi_freq <- rowSums(as.matrix(bidtf[bi_tf, ]))
+bi_freq <- data.frame(words=names(bi_freq), frequency=bi_freq)
+
+tri_freq <- rowSums(as.matrix(tridtf[tri_tf, ]))
+tri_freq <- data.frame(words=names(tri_freq), frequency=tri_freq)
+
+head(tri_freq)
+```
+
+## Ploting N-grams Data
+
+```{r}
+wordcloud(words=uni_freq$words, freq=uni_freq$frequency, max.words=100, colors = brewer.pal(8, "Dark2"))
+plot_freq <- ggplot(data = uni_freq[order(-uni_freq$frequency),][1:15, ], aes(x = reorder(words, -frequency), y=frequency)) +
+              geom_bar(stat="identity", fill="yellow") + 
+              ggtitle("Top Unigram") + xlab("words") +  ylab("frequency")
+
+plot_freq
+```
+
+```{r}
+plot_freq <- ggplot(data = bi_freq[order(-bi_freq$frequency),][1:15, ], aes(x = reorder(words, -frequency), y=frequency)) +
+  geom_bar(stat="identity", fill="green") + theme(axis.text.x = element_text(angle = 45)) + 
+  ggtitle("Top Bigram") + xlab("words") +  ylab("frequency")
+  
+plot_freq
+```
+
+```{r}
+plot_freq <- ggplot(data = tri_freq[order(-tri_freq$frequency),][1:15, ], aes(x = reorder(words, -frequency), y=frequency)) +
+  geom_bar(stat="identity", fill="gray") + theme(axis.text.x = element_text(angle = 45)) + 
+  ggtitle("Top Trigram") + xlab("words") +  ylab("frequency")
+
+plot_freq
+```
